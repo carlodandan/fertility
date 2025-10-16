@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Rules for including files in cloud backups -->
+    </cloud-backup>
+    <device-transfer>
+        <!-- Rules for including files in device-to-device transfers -->
+    </device-transfer>
+</data-extraction-rules>
