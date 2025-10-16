@@ -1,8 +1,8 @@
 package com.fertility.womenshealth
 
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
+import java.text.SimpleDateFormat
+import java.util.*
+import java.util.concurrent.TimeUnit
 
 class MenstrualCycleCalculator {
     
@@ -18,6 +18,8 @@ class MenstrualCycleCalculator {
             "overweight" to Pair(7.0, 11.5),
             "obese" to Pair(5.0, 9.0)
         )
+        
+        private val dateFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     }
     
     data class FertilityResult(
@@ -43,53 +45,67 @@ class MenstrualCycleCalculator {
         val bmi: Double
     )
     
-    // Calculate fertility window based on last menstrual period
     fun calculateFertilityWindow(
         lastPeriodDate: String,
         cycleLength: Int = DEFAULT_CYCLE_LENGTH
     ): FertilityResult {
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
-        val lmp = LocalDate.parse(lastPeriodDate, formatter)
+        val lmp = dateFormatter.parse(lastPeriodDate) ?: Date()
+        val calendar = Calendar.getInstance()
+        calendar.time = lmp
         
         // Ovulation occurs approximately 14 days before next period
-        val ovulationDate = lmp.plusDays((cycleLength - LUTEAL_PHASE_LENGTH).toLong())
+        calendar.time = lmp
+        calendar.add(Calendar.DAY_OF_YEAR, cycleLength - LUTEAL_PHASE_LENGTH)
+        val ovulationDate = calendar.time
         
         // Fertility window: 5 days before ovulation to 1 day after
-        val fertilityWindowStart = ovulationDate.minusDays(5)
-        val fertilityWindowEnd = ovulationDate.plusDays(1)
-        val nextPeriodDate = lmp.plusDays(cycleLength.toLong())
+        calendar.time = ovulationDate
+        calendar.add(Calendar.DAY_OF_YEAR, -5)
+        val fertilityWindowStart = calendar.time
+        
+        calendar.time = ovulationDate
+        calendar.add(Calendar.DAY_OF_YEAR, 1)
+        val fertilityWindowEnd = calendar.time
+        
+        calendar.time = lmp
+        calendar.add(Calendar.DAY_OF_YEAR, cycleLength)
+        val nextPeriodDate = calendar.time
         
         // Generate list of fertile days
         val fertileDays = mutableListOf<String>()
-        var currentDate = fertilityWindowStart
-        while (!currentDate.isAfter(fertilityWindowEnd)) {
-            fertileDays.add(currentDate.format(formatter))
-            currentDate = currentDate.plusDays(1)
+        calendar.time = fertilityWindowStart
+        while (calendar.time <= fertilityWindowEnd) {
+            fertileDays.add(dateFormatter.format(calendar.time))
+            calendar.add(Calendar.DAY_OF_YEAR, 1)
         }
         
         return FertilityResult(
-            ovulationDate = ovulationDate.format(formatter),
-            fertilityWindowStart = fertilityWindowStart.format(formatter),
-            fertilityWindowEnd = fertilityWindowEnd.format(formatter),
-            nextPeriodDate = nextPeriodDate.format(formatter),
+            ovulationDate = dateFormatter.format(ovulationDate),
+            fertilityWindowStart = dateFormatter.format(fertilityWindowStart),
+            fertilityWindowEnd = dateFormatter.format(fertilityWindowEnd),
+            nextPeriodDate = dateFormatter.format(nextPeriodDate),
             fertileDays = fertileDays
         )
     }
     
-    // Calculate due date based on last menstrual period
     fun calculateDueDate(lastPeriodDate: String): DueDateResult {
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
-        val lmp = LocalDate.parse(lastPeriodDate, formatter)
+        val lmp = dateFormatter.parse(lastPeriodDate) ?: Date()
+        val calendar = Calendar.getInstance()
         
         // Due date is approximately 280 days (40 weeks) from LMP
-        val dueDate = lmp.plusDays(PREGNANCY_DAYS_FROM_LMP.toLong())
+        calendar.time = lmp
+        calendar.add(Calendar.DAY_OF_YEAR, PREGNANCY_DAYS_FROM_LMP)
+        val dueDate = calendar.time
         
         // Conception typically occurs around 14 days after LMP
-        val conceptionDate = lmp.plusDays(14)
+        calendar.time = lmp
+        calendar.add(Calendar.DAY_OF_YEAR, 14)
+        val conceptionDate = calendar.time
         
         // Calculate current pregnancy week and days to go
-        val weeksPregnant = ChronoUnit.WEEKS.between(lmp, LocalDate.now()).toInt()
-        val daysToGo = ChronoUnit.DAYS.between(LocalDate.now(), dueDate).toInt()
+        val today = Date()
+        val weeksPregnant = calculateWeeksBetween(lmp, today)
+        val daysToGo = calculateDaysBetween(today, dueDate)
         
         val trimester = when {
             weeksPregnant < 14 -> 1
@@ -98,51 +114,21 @@ class MenstrualCycleCalculator {
         }
         
         return DueDateResult(
-            dueDate = dueDate.format(formatter),
-            conceptionDate = conceptionDate.format(formatter),
+            dueDate = dateFormatter.format(dueDate),
+            conceptionDate = dateFormatter.format(conceptionDate),
             currentWeek = weeksPregnant,
             trimester = trimester,
             daysToGo = daysToGo
         )
     }
     
-    // Calculate due date based on conception date
-    fun calculateDueDateFromConception(conceptionDate: String): DueDateResult {
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
-        val conception = LocalDate.parse(conceptionDate, formatter)
-        
-        // Due date is 266 days (38 weeks) from conception
-        val dueDate = conception.plusDays(PREGNANCY_DAYS_FROM_CONCEPTION.toLong())
-        val lmp = conception.minusDays(14) // Estimate LMP
-        
-        val weeksPregnant = ChronoUnit.WEEKS.between(lmp, LocalDate.now()).toInt()
-        val daysToGo = ChronoUnit.DAYS.between(LocalDate.now(), dueDate).toInt()
-        
-        val trimester = when {
-            weeksPregnant < 14 -> 1
-            weeksPregnant < 28 -> 2
-            else -> 3
-        }
-        
-        return DueDateResult(
-            dueDate = dueDate.format(formatter),
-            conceptionDate = conception.format(formatter),
-            currentWeek = weeksPregnant,
-            trimester = trimester,
-            daysToGo = daysToGo
-        )
-    }
-    
-    // Calculate pregnancy weight recommendation
     fun calculateWeightRecommendation(
         prePregnancyWeight: Double,
         height: Double,
         gestationalAge: Int
     ): WeightRecommendationResult {
-        // Calculate BMI
         val bmi = prePregnancyWeight / (height * height)
         
-        // Determine BMI category
         val (category, totalGainRange) = when {
             bmi < 18.5 -> "underweight" to weightGainRanges["underweight"]!!
             bmi < 25 -> "normal" to weightGainRanges["normal"]!!
@@ -150,7 +136,6 @@ class MenstrualCycleCalculator {
             else -> "obese" to weightGainRanges["obese"]!!
         }
         
-        // Calculate current recommended weight gain based on trimester
         val currentGainRange = calculateCurrentWeightGain(gestationalAge, totalGainRange)
         
         return WeightRecommendationResult(
@@ -166,15 +151,15 @@ class MenstrualCycleCalculator {
         totalGainRange: Pair<Double, Double>
     ): Pair<Double, Double> {
         return when {
-            gestationalAge <= 13 -> Pair(0.5, 2.0) // First trimester
-            gestationalAge <= 27 -> { // Second trimester
+            gestationalAge <= 13 -> Pair(0.5, 2.0)
+            gestationalAge <= 27 -> {
                 val progress = (gestationalAge - 13) / 14.0
                 Pair(
                     2.0 + (totalGainRange.first * 0.4 - 2.0) * progress,
                     2.0 + (totalGainRange.second * 0.4 - 2.0) * progress
                 )
             }
-            else -> { // Third trimester
+            else -> {
                 val progress = (gestationalAge - 27) / 13.0
                 Pair(
                     totalGainRange.first * 0.4 + (totalGainRange.first * 0.6) * progress,
@@ -184,18 +169,14 @@ class MenstrualCycleCalculator {
         }
     }
     
-    // Calendar method for fertility prediction
-    fun calculateFertilityCalendarMethod(cycleLengths: List<Int>): Pair<Int, Int> {
-        if (cycleLengths.size < 2) {
-            return Pair(8, 20)
-        }
-        
-        val shortestCycle = cycleLengths.minOrNull() ?: DEFAULT_CYCLE_LENGTH
-        val longestCycle = cycleLengths.maxOrNull() ?: DEFAULT_CYCLE_LENGTH
-        
-        val fertileStart = shortestCycle - 18
-        val fertileEnd = longestCycle - 11
-        
-        return Pair(fertileStart.coerceAtLeast(1), fertileEnd.coerceAtMost(35))
+    private fun calculateWeeksBetween(startDate: Date, endDate: Date): Int {
+        val diff = endDate.time - startDate.time
+        val days = TimeUnit.DAYS.convert(diff, TimeUnit.MILLISECONDS)
+        return (days / 7).toInt()
+    }
+    
+    private fun calculateDaysBetween(startDate: Date, endDate: Date): Int {
+        val diff = endDate.time - startDate.time
+        return TimeUnit.DAYS.convert(diff, TimeUnit.MILLISECONDS).toInt()
     }
 }
